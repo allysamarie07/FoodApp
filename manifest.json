@@ -1,6 +1,6 @@
 {
-  "name": "Kain Tayo — Filipino Food Identifier",
-  "short_name": "Kain Tayo",
+  "name": "Ngaon Ta! — Filipino Food Identifier",
+  "short_name": "Ngaon Ta!",
   "description": "Identify Filipino dishes instantly using AI — with allergy info and translations in Korean, Chinese, and Japanese.",
   "start_url": "./",
   "scope": "./",
