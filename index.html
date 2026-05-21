@@ -7,8 +7,8 @@
   <meta name="description" content="Identify Filipino dishes instantly — allergy info and translations in 4 languages." />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="Kain Tayo" />
-  <title>Kain Tayo — Filipino Food Identifier</title>
+  <meta name="apple-mobile-web-app-title" content="Ngaon Ta!" />
+  <title>Ngaon Ta! — Filipino Food Identifier</title>
 
   <!-- PWA manifest -->
   <link rel="manifest" href="./manifest.json" />
@@ -426,7 +426,7 @@ body {
       <div class="logo">
         <div class="logo-icon">🍽️</div>
         <div class="logo-text">
-          <span class="logo-title">Kain Tayo</span>
+          <span class="logo-title">Ngaon Ta!</span>
           <span class="logo-sub">Filipino Food Identifier</span>
         </div>
       </div>
@@ -882,7 +882,7 @@ async function loadModel() {
     uploadBtn.disabled = false;
     setTimeout(() => modelBanner.classList.add("hidden"), 3000);
   } catch (err) {
-    console.error("[Kain Tayo] Model load error:", err);
+    console.error("[Ngaon Ta!] Model load error:", err);
 
     let hint;
     if (!navigator.onLine) {
@@ -985,7 +985,7 @@ async function predict(src) {
       showUnknown(label);
     }
   } catch (err) {
-    console.error("[Kain Tayo] Predict error:", err);
+    console.error("[Ngaon Ta!] Predict error:", err);
     showError();
   } finally {
     loadingOverlay.classList.add("hidden");
