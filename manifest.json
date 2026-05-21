@@ -1,0 +1,52 @@
+{
+  "name": "Kain Tayo — Filipino Food Identifier",
+  "short_name": "Kain Tayo",
+  "description": "Identify Filipino dishes instantly using AI — with allergy info and translations in Korean, Chinese, and Japanese.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f9f5f0",
+  "theme_color": "#d4421e",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["food", "utilities", "education"],
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "./icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "./icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Identify a Dish",
+      "short_name": "Identify",
+      "description": "Open the Filipino food identifier",
+      "url": "./",
+      "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ],
+  "related_applications": []
+}

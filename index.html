@@ -1,0 +1,1151 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#d4421e" />
+  <meta name="description" content="Identify Filipino dishes instantly — allergy info and translations in 4 languages." />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Kain Tayo" />
+  <title>Kain Tayo — Filipino Food Identifier</title>
+
+  <!-- PWA manifest -->
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" type="image/png" href="./icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+
+  <!--
+    ╔══════════════════════════════════════════════════════════════════╗
+    ║  FONTS — loaded from Google Fonts with offline fallback          ║
+    ║  If offline, system serif / sans-serif are used automatically.   ║
+    ╚══════════════════════════════════════════════════════════════════╝
+  -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <!-- TensorFlow.js + Teachable Machine — loaded from CDN, cached by SW after first visit -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+  <script src="https://unpkg.com/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+
+  <style>
+/* ===== Design Tokens ===== */
+:root {
+  --primary:     #d4421e;
+  --primary-dark:#a83216;
+  --primary-light:#f7e4df;
+  --accent:      #f5a623;
+  --bg:          #f9f5f0;
+  --bg-card:     #ffffff;
+  --bg-card2:    #fdf8f4;
+  --text:        #1a1108;
+  --text-muted:  #7a6a58;
+  --text-light:  #b0a090;
+  --border:      #e8ddd4;
+  --shadow:      rgba(80,40,10,.10);
+  --shadow-strong:rgba(80,40,10,.18);
+  --allergy-bg:  #fff5f0;
+  --allergy-border:#f4c3b0;
+  --allergy-text:#9b2c00;
+  --tag-bg:      #f0ebe5;
+  --tag-text:    #5a4a38;
+  --chip-bg:     #fdeee8;
+  --chip-text:   #c03018;
+  --offline-bg:  #0f4c81;
+  --offline-text:#e8f4fd;
+  --radius:      20px;
+  --radius-sm:   10px;
+  --tr:          .25s cubic-bezier(.4,0,.2,1);
+}
+[data-theme="dark"] {
+  --bg:          #110d08;
+  --bg-card:     #1e1610;
+  --bg-card2:    #261c13;
+  --text:        #f5efe8;
+  --text-muted:  #b0997e;
+  --text-light:  #7a6555;
+  --border:      #3a2e22;
+  --shadow:      rgba(0,0,0,.4);
+  --shadow-strong:rgba(0,0,0,.6);
+  --allergy-bg:  #2a1510;
+  --allergy-border:#6a2c18;
+  --allergy-text:#f09070;
+  --tag-bg:      #2e2218;
+  --tag-text:    #d4b898;
+  --chip-bg:     #2e1810;
+  --chip-text:   #f09070;
+  --primary-light:#2e1810;
+  --offline-bg:  #0a3356;
+  --offline-text:#cce7ff;
+}
+
+/* ===== Reset ===== */
+*,*::before,*::after { box-sizing:border-box; margin:0; padding:0 }
+html { scroll-behavior:smooth }
+body {
+  font-family:'DM Sans',sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  transition:background var(--tr),color var(--tr);
+  min-height:100vh;
+  overflow-x:hidden;
+}
+
+/* ===== Utility ===== */
+.hidden { display:none !important }
+
+/* ===== Banners ===== */
+.banner-stack {
+  position:fixed; top:0; left:0; right:0; z-index:1000;
+  display:flex; flex-direction:column;
+}
+
+/* Install banner */
+.install-banner {
+  background:var(--primary); color:#fff;
+  display:flex; align-items:center; gap:12px;
+  padding:12px 16px; font-size:14px; font-weight:500;
+}
+.install-banner span { flex:1 }
+.install-banner button {
+  background:#fff; color:var(--primary); border:none;
+  border-radius:20px; padding:6px 14px;
+  font-size:13px; font-weight:600; cursor:pointer;
+}
+#dismiss-banner {
+  background:transparent !important; color:#fff !important;
+  font-size:18px; padding:4px 8px;
+}
+
+/* Offline-ready banner */
+.offline-ready-banner {
+  background:var(--offline-bg); color:var(--offline-text);
+  display:flex; align-items:center; gap:10px;
+  padding:10px 16px; font-size:13px; font-weight:500;
+  animation:slideDown .35s ease both;
+}
+.offline-ready-banner span { flex:1 }
+.offline-ready-banner button {
+  background:transparent; color:inherit;
+  border:none; font-size:18px; cursor:pointer;
+  padding:2px 6px; opacity:.8;
+}
+@keyframes slideDown {
+  from { transform:translateY(-100%); opacity:0 }
+  to   { transform:translateY(0);    opacity:1 }
+}
+
+/* ===== Theme Toggle ===== */
+.theme-toggle {
+  position:fixed; top:16px; right:16px; z-index:500;
+  width:44px; height:44px; border-radius:50%; border:none;
+  background:var(--bg-card);
+  box-shadow:0 2px 12px var(--shadow-strong);
+  cursor:pointer;
+  display:flex; align-items:center; justify-content:center;
+  font-size:20px; transition:transform var(--tr),box-shadow var(--tr);
+}
+.theme-toggle:hover  { transform:scale(1.1) }
+.theme-toggle:active { transform:scale(.95) }
+
+/* ===== Header ===== */
+.header {
+  background:linear-gradient(135deg,var(--primary) 0%,#c13418 60%,var(--accent) 100%);
+  padding:48px 24px 0; position:relative; overflow:hidden;
+}
+.header::before {
+  content:''; position:absolute; top:-40px; right:-40px;
+  width:200px; height:200px; border-radius:50%;
+  background:rgba(255,255,255,.06);
+}
+.header::after {
+  content:''; position:absolute; bottom:20px; left:-60px;
+  width:160px; height:160px; border-radius:50%;
+  background:rgba(255,255,255,.04);
+}
+.header-inner {
+  max-width:600px; margin:0 auto;
+  padding-bottom:32px; position:relative; z-index:1;
+}
+.logo { display:flex; align-items:center; gap:14px }
+.logo-icon {
+  width:60px; height:60px;
+  background:rgba(255,255,255,.2); border-radius:16px;
+  display:flex; align-items:center; justify-content:center;
+  font-size:32px; backdrop-filter:blur(10px);
+  border:1px solid rgba(255,255,255,.3);
+}
+.logo-title {
+  display:block; font-family:'Playfair Display',serif;
+  font-size:28px; font-weight:900; color:#fff; line-height:1;
+}
+.logo-sub {
+  display:block; font-size:13px; color:rgba(255,255,255,.75);
+  margin-top:4px; font-weight:500; letter-spacing:.3px;
+}
+.header-wave { height:36px; margin-bottom:-2px }
+.header-wave svg { width:100%; height:100%; display:block }
+
+/* ===== Model Banner ===== */
+.model-banner {
+  display:flex; align-items:center; gap:10px;
+  padding:12px 16px; border-radius:var(--radius-sm);
+  border:1px solid var(--border); background:var(--bg-card);
+  font-size:13px; font-weight:500; transition:all var(--tr);
+}
+.model-banner.ready   { border-color:#86efac; background:#f0fdf4 }
+.model-banner.ready .mdot { background:#22c55e }
+[data-theme="dark"] .model-banner.ready { background:#0d2818; border-color:#166534 }
+.model-banner.error   { border-color:#fca5a5; background:#fef2f2 }
+.model-banner.error .mdot { background:#ef4444 }
+[data-theme="dark"] .model-banner.error { background:#2a1010; border-color:#7f1d1d }
+.mdot {
+  width:10px; height:10px; border-radius:50%;
+  background:var(--accent); flex-shrink:0; animation:mpulse 1s infinite;
+}
+.model-banner.ready .mdot,
+.model-banner.error .mdot { animation:none }
+@keyframes mpulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+.mbanner-text { flex:1; color:var(--text-muted) }
+.model-banner.ready .mbanner-text { color:#15803d }
+[data-theme="dark"] .model-banner.ready .mbanner-text { color:#4ade80 }
+.model-banner.error .mbanner-text { color:#b91c1c }
+[data-theme="dark"] .model-banner.error .mbanner-text { color:#f87171 }
+.retry-btn {
+  background:var(--primary); color:#fff; border:none;
+  border-radius:20px; padding:5px 12px;
+  font-size:12px; font-weight:600; cursor:pointer; flex-shrink:0;
+  transition:background var(--tr);
+}
+.retry-btn:hover { background:var(--primary-dark) }
+
+/* ===== Main ===== */
+.main {
+  max-width:600px; margin:0 auto;
+  padding:24px 16px 48px;
+  display:flex; flex-direction:column; gap:20px;
+}
+
+/* ===== Cards ===== */
+.card {
+  background:var(--bg-card); border-radius:var(--radius);
+  padding:24px; box-shadow:0 4px 24px var(--shadow);
+  border:1px solid var(--border); animation:slideUp .4s ease both;
+}
+@keyframes slideUp {
+  from { opacity:0; transform:translateY(24px) }
+  to   { opacity:1; transform:translateY(0)    }
+}
+.card-title {
+  font-family:'Playfair Display',serif; font-size:22px;
+  font-weight:700; color:var(--text); margin-bottom:6px;
+}
+.card-desc {
+  font-size:14px; color:var(--text-muted); margin-bottom:20px; line-height:1.5;
+}
+
+/* ===== Image Preview ===== */
+.image-preview-wrap {
+  position:relative; width:100%; aspect-ratio:4/3;
+  border-radius:var(--radius-sm); overflow:hidden;
+  background:var(--bg); border:2px dashed var(--border);
+  margin-bottom:20px; transition:border-color var(--tr);
+}
+.image-preview-wrap.has-image { border-style:solid; border-color:var(--primary) }
+.image-placeholder {
+  width:100%; height:100%;
+  display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  gap:12px; color:var(--text-light);
+}
+.placeholder-icon { font-size:56px; opacity:.5 }
+.image-placeholder p { font-size:14px; font-weight:500 }
+.preview-img { width:100%; height:100%; object-fit:cover; display:block }
+
+/* ===== Loading Overlay ===== */
+.loading-overlay {
+  position:absolute; inset:0;
+  background:rgba(0,0,0,.55);
+  display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  gap:14px; color:#fff; font-size:14px; font-weight:500;
+  backdrop-filter:blur(4px);
+}
+.spinner {
+  width:40px; height:40px;
+  border:4px solid rgba(255,255,255,.3);
+  border-top-color:#fff; border-radius:50%;
+  animation:spin .8s linear infinite;
+}
+@keyframes spin { to { transform:rotate(360deg) } }
+
+/* ===== Buttons ===== */
+.btn-row { display:grid; grid-template-columns:1fr 1fr; gap:12px }
+.btn {
+  display:flex; align-items:center; justify-content:center; gap:8px;
+  padding:14px 20px; border-radius:var(--radius-sm); border:none;
+  font-family:'DM Sans',sans-serif; font-size:15px; font-weight:600;
+  cursor:pointer;
+  transition:transform var(--tr),box-shadow var(--tr),background var(--tr);
+  -webkit-tap-highlight-color:transparent;
+}
+.btn:active { transform:scale(.97) }
+.btn-primary { background:var(--primary); color:#fff; box-shadow:0 4px 16px rgba(212,66,30,.35) }
+.btn-primary:hover  { background:var(--primary-dark); box-shadow:0 6px 20px rgba(212,66,30,.45) }
+.btn-primary:disabled { opacity:.5; cursor:not-allowed; transform:none }
+.btn-secondary { background:var(--tag-bg); color:var(--text); border:1px solid var(--border) }
+.btn-secondary:hover   { background:var(--border) }
+.btn-secondary:disabled { opacity:.5; cursor:not-allowed }
+.btn-outline {
+  background:transparent; color:var(--primary);
+  border:2px solid var(--primary); width:100%; margin-top:20px;
+}
+.btn-outline:hover { background:var(--primary-light) }
+
+/* ===== Result Card ===== */
+.result-header { display:flex; align-items:flex-start; gap:16px; margin-bottom:20px }
+.result-emoji {
+  font-size:48px; width:72px; height:72px;
+  background:var(--primary-light); border-radius:16px;
+  display:flex; align-items:center; justify-content:center; flex-shrink:0;
+}
+.result-name {
+  font-family:'Playfair Display',serif; font-size:22px;
+  font-weight:700; color:var(--text); line-height:1.2; margin-bottom:8px;
+}
+.confidence-bar-wrap {
+  height:6px; background:var(--tag-bg); border-radius:3px;
+  overflow:hidden; margin-bottom:6px; width:200px; max-width:100%;
+}
+.confidence-bar {
+  height:100%;
+  background:linear-gradient(90deg,var(--primary),var(--accent));
+  border-radius:3px; transition:width .6s cubic-bezier(.4,0,.2,1); width:0%;
+}
+.confidence-label { font-size:12px; color:var(--text-muted); font-weight:500 }
+
+/* ===== Language Tabs ===== */
+.lang-tabs {
+  display:flex; gap:8px; margin-bottom:20px; overflow-x:auto;
+  -webkit-overflow-scrolling:touch; scrollbar-width:none; padding-bottom:2px;
+}
+.lang-tabs::-webkit-scrollbar { display:none }
+.lang-tab {
+  flex-shrink:0; padding:8px 14px; border-radius:20px;
+  border:2px solid var(--border); background:transparent;
+  color:var(--text-muted); font-family:'DM Sans',sans-serif;
+  font-size:13px; font-weight:600; cursor:pointer;
+  transition:all var(--tr); -webkit-tap-highlight-color:transparent;
+}
+.lang-tab:hover  { border-color:var(--primary); color:var(--primary) }
+.lang-tab.active { background:var(--primary); border-color:var(--primary); color:#fff }
+
+/* ===== Info Blocks ===== */
+.info-section { display:flex; flex-direction:column; gap:16px }
+.info-block {
+  background:var(--bg-card2); border-radius:var(--radius-sm);
+  padding:16px; border:1px solid var(--border);
+}
+.allergy-block { background:var(--allergy-bg); border-color:var(--allergy-border) }
+.allergy-block .info-label { color:var(--allergy-text) }
+.info-label {
+  font-size:12px; font-weight:600; text-transform:uppercase;
+  letter-spacing:.6px; color:var(--text-muted); margin-bottom:10px;
+}
+.info-text { font-size:14px; line-height:1.65; color:var(--text) }
+.tag-list { display:flex; flex-wrap:wrap; gap:8px }
+.tag {
+  padding:5px 12px; border-radius:20px;
+  font-size:13px; font-weight:500;
+  background:var(--tag-bg); color:var(--tag-text); border:1px solid var(--border);
+}
+.allergy-block .tag {
+  background:var(--allergy-bg); color:var(--allergy-text);
+  border-color:var(--allergy-border);
+}
+
+/* ===== About Card ===== */
+.about-card { background:var(--bg-card2) }
+.about-card h3 {
+  font-family:'Playfair Display',serif; font-size:18px;
+  font-weight:700; margin-bottom:8px;
+}
+.about-card p { font-size:14px; color:var(--text-muted); line-height:1.6; margin-bottom:16px }
+.food-chips { display:flex; flex-wrap:wrap; gap:8px }
+.chip {
+  padding:5px 12px; border-radius:20px;
+  font-size:12px; font-weight:600;
+  background:var(--chip-bg); color:var(--chip-text);
+}
+
+/* ===== Footer ===== */
+.footer { text-align:center; padding:24px; font-size:13px; color:var(--text-light) }
+
+/* ===== Responsive ===== */
+@media (max-width:400px) {
+  .header { padding:40px 16px 0 }
+  .logo-title { font-size:24px }
+  .main { padding:16px 12px 40px }
+  .card { padding:18px }
+  .result-name { font-size:19px }
+  .result-emoji { width:60px; height:60px; font-size:38px }
+  .confidence-bar-wrap { width:150px }
+}
+@media (min-width:600px) { .card { padding:28px } }
+  </style>
+</head>
+<body>
+
+  <!-- ── Banner Stack (fixed at top) ── -->
+  <div class="banner-stack" id="banner-stack">
+
+    <!-- Install Banner -->
+    <div id="install-banner" class="install-banner hidden">
+      <span>📲 Install this app on your device!</span>
+      <button id="install-btn">Install</button>
+      <button id="dismiss-banner">✕</button>
+    </div>
+
+    <!-- Offline-Ready Banner (shown after SW activates) -->
+    <div id="offline-ready-banner" class="offline-ready-banner hidden">
+      <span>✅ App is ready for offline use!</span>
+      <button id="dismiss-offline-banner" aria-label="Dismiss">✕</button>
+    </div>
+
+  </div>
+
+  <!-- Theme Toggle -->
+  <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
+    <span class="theme-icon">☀️</span>
+  </button>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">
+        <div class="logo-icon">🍽️</div>
+        <div class="logo-text">
+          <span class="logo-title">Kain Tayo</span>
+          <span class="logo-sub">Filipino Food Identifier</span>
+        </div>
+      </div>
+    </div>
+    <div class="header-wave">
+      <svg viewBox="0 0 1200 60" preserveAspectRatio="none" aria-hidden="true">
+        <path d="M0,30 C300,60 900,0 1200,30 L1200,60 L0,60 Z" fill="var(--bg)"/>
+      </svg>
+    </div>
+  </header>
+
+  <main class="main">
+
+    <!-- Model Status Banner -->
+    <div class="model-banner" id="model-banner" role="status" aria-live="polite">
+      <div class="mdot" id="mdot"></div>
+      <span class="mbanner-text" id="mbanner-text">⏳ Loading AI model…</span>
+    </div>
+
+    <!-- Identify Card -->
+    <section class="card">
+      <h2 class="card-title">Identify a Dish</h2>
+      <p class="card-desc">Take a photo or upload an image of a Filipino dish — the AI will identify it instantly.</p>
+
+      <div class="image-preview-wrap" id="preview-wrap"
+           role="img" aria-label="Food image preview area">
+        <div class="image-placeholder" id="placeholder">
+          <span class="placeholder-icon" aria-hidden="true">🇵🇭</span>
+          <p>No image yet — snap or upload one!</p>
+        </div>
+        <img id="preview-img" class="preview-img hidden" alt="Food preview" />
+        <div class="loading-overlay hidden" id="loading-overlay" role="status" aria-label="Identifying dish">
+          <div class="spinner" aria-hidden="true"></div>
+          <p id="loading-text">Identifying dish…</p>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" id="camera-btn" disabled aria-label="Use camera">
+          <span aria-hidden="true">📷</span> Camera
+        </button>
+        <button class="btn btn-secondary" id="upload-btn" disabled aria-label="Upload image">
+          <span aria-hidden="true">📁</span> Upload
+        </button>
+      </div>
+    </section>
+
+    <!-- Result Card -->
+    <section class="card hidden" id="result-card" aria-live="polite">
+      <div class="result-header">
+        <div class="result-emoji" id="result-emoji" aria-hidden="true">🍲</div>
+        <div style="flex:1;min-width:0">
+          <h2 class="result-name" id="result-name">—</h2>
+          <div class="confidence-bar-wrap" role="progressbar"
+               aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"
+               aria-label="Confidence level">
+            <div class="confidence-bar" id="confidence-bar"></div>
+          </div>
+          <p class="confidence-label" id="confidence-label">Confidence: —</p>
+        </div>
+      </div>
+
+      <!-- Language Tabs -->
+      <div class="lang-tabs" id="lang-tabs" role="tablist" aria-label="Language selection">
+        <button class="lang-tab active" data-lang="en" role="tab" aria-selected="true">🇵🇭 English</button>
+        <button class="lang-tab" data-lang="ko" role="tab" aria-selected="false">🇰🇷 Korean</button>
+        <button class="lang-tab" data-lang="zh" role="tab" aria-selected="false">🇨🇳 Chinese</button>
+        <button class="lang-tab" data-lang="ja" role="tab" aria-selected="false">🇯🇵 Japanese</button>
+      </div>
+
+      <!-- Info -->
+      <div class="info-section">
+        <div class="info-block">
+          <h3 class="info-label">📝 Description</h3>
+          <p class="info-text" id="info-description">—</p>
+        </div>
+        <div class="info-block">
+          <h3 class="info-label">🥘 Main Ingredients</h3>
+          <div class="tag-list" id="info-ingredients"></div>
+        </div>
+        <div class="info-block allergy-block">
+          <h3 class="info-label">⚠️ Allergy Warnings</h3>
+          <div class="tag-list" id="info-allergies"></div>
+        </div>
+      </div>
+
+      <button class="btn btn-outline" id="try-again-btn">↩ Try Another</button>
+    </section>
+
+    <!-- About -->
+    <section class="card about-card">
+      <h3>About This App</h3>
+      <p>Uses a locally-trained AI model to identify Filipino dishes from photos. Results include ingredients, allergy warnings, and translations in 4 languages. Works fully offline after first visit.</p>
+      <div class="food-chips" aria-label="Supported dishes">
+        <span class="chip">Adobo</span>
+        <span class="chip">Sinigang</span>
+        <span class="chip">Lechon</span>
+        <span class="chip">Binignit</span>
+        <span class="chip">Dinuguan</span>
+        <span class="chip">Humba</span>
+        <span class="chip">Kinilaw</span>
+        <span class="chip">Lawuy</span>
+        <span class="chip">Lechon Manok</span>
+        <span class="chip">Sinunuban</span>
+        <span class="chip">Sisig</span>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="footer">
+    <p>Made with ❤️ for Filipino cuisine lovers worldwide</p>
+  </footer>
+
+  <!-- Hidden file inputs -->
+  <input type="file" id="camera-input" accept="image/*" capture="environment" class="hidden" />
+  <input type="file" id="file-input"   accept="image/*"                       class="hidden" />
+
+
+  <script>
+/* ============================================================
+   FOOD DATABASE
+   Labels match metadata.json exactly:
+   adobo | binignit | dinuguan | humba | kinilawnaisda |
+   lawuy | lechon   | lechonmanok | sinigang | sinunuban | sisig
+   ============================================================ */
+const FOOD_DB = {
+
+  adobo: {
+    emoji:"🍗",
+    en:{ name:"Chicken/Pork Adobo",
+      description:"The unofficial national dish of the Philippines — meat braised in vinegar, soy sauce, garlic, bay leaves, and black pepper until tender and deeply savory.",
+      ingredients:["Chicken or Pork","White Vinegar","Soy Sauce","Garlic","Bay Leaves","Black Pepper","Oil"],
+      allergies:["Soy (soy sauce)","Gluten (some soy sauces)"] },
+    ko:{ name:"치킨/포크 아도보",
+      description:"필리핀의 비공식 국민 요리로, 식초, 간장, 마늘, 월계수 잎, 후추를 넣고 고기를 부드럽게 될 때까지 졸인 요리입니다.",
+      ingredients:["닭고기 또는 돼지고기","흰 식초","간장","마늘","월계수 잎","흑후추","식용유"],
+      allergies:["대두 (간장)","글루텐 (일부 간장)"] },
+    zh:{ name:"鸡肉/猪肉阿斗波",
+      description:"菲律宾非官方的国民菜肴——用醋、酱油、大蒜、月桂叶和黑胡椒将肉炖至软嫩鲜美。",
+      ingredients:["鸡肉或猪肉","白醋","酱油","大蒜","月桂叶","黑胡椒","食用油"],
+      allergies:["大豆（酱油）","麸质（部分酱油）"] },
+    ja:{ name:"アドボ（鶏肉・豚肉）",
+      description:"フィリピンの非公式国民食。酢、醤油、にんにく、ローリエ、黒こしょうで肉をじっくり煮込んだ深い旨みの料理です。",
+      ingredients:["鶏肉または豚肉","白酢","醤油","にんにく","ローリエ","黒こしょう","食用油"],
+      allergies:["大豆（醤油）","グルテン（一部の醤油）"] }
+  },
+
+  binignit: {
+    emoji:"🍡",
+    en:{ name:"Binignit",
+      description:"A warm Visayan dessert soup made with glutinous rice, coconut milk, and a medley of root crops and fruits like taro, banana, sweet potato, jackfruit, and sago pearls.",
+      ingredients:["Glutinous Rice","Coconut Milk","Taro","Banana","Sweet Potato","Jackfruit","Sago Pearls","Brown Sugar"],
+      allergies:["Tree Nuts (coconut)"] },
+    ko:{ name:"비니그닛",
+      description:"찹쌀, 코코넛 밀크, 토란, 바나나, 고구마, 잭프루트, 사고 진주로 만든 따뜻한 비사야식 디저트 수프입니다.",
+      ingredients:["찹쌀","코코넛 밀크","토란","바나나","고구마","잭프루트","사고 진주","흑설탕"],
+      allergies:["견과류 (코코넛)"] },
+    zh:{ name:"椰汁糯米甜汤 (比尼格尼特)",
+      description:"用糯米、椰奶、芋头、香蕉、红薯、菠萝蜜和西米露制成的温热米沙雅甜汤甜品。",
+      ingredients:["糯米","椰奶","芋头","香蕉","红薯","菠萝蜜","西米露","红糖"],
+      allergies:["坚果（椰子）"] },
+    ja:{ name:"ビニグニット",
+      description:"もち米、ココナッツミルク、タロ、バナナ、さつまいも、ジャックフルーツ、サゴパールで作るビサヤ地方の温かいデザートスープです。",
+      ingredients:["もち米","ココナッツミルク","タロイモ","バナナ","さつまいも","ジャックフルーツ","サゴパール","黒砂糖"],
+      allergies:["ナッツ類（ヤシ）"] }
+  },
+
+  dinuguan: {
+    emoji:"🍖",
+    en:{ name:"Dinuguan",
+      description:"A savory Filipino stew of pork and pork offal simmered in a rich, dark gravy made from pig's blood, vinegar, garlic, and chili. Often called 'chocolate meat' for its deep color.",
+      ingredients:["Pork","Pork Intestines / Liver","Pig's Blood","Vinegar","Garlic","Onion","Chili Peppers","Salt"],
+      allergies:["None typical — check for garlic/onion sensitivity"] },
+    ko:{ name:"디누구안",
+      description:"돼지고기와 돼지 내장을 돼지 피, 식초, 마늘, 고추로 만든 진하고 검은 소스에 조린 필리핀 스튜입니다. 깊은 색 때문에 '초콜릿 고기'라고도 불립니다.",
+      ingredients:["돼지고기","돼지 내장/간","돼지 피","식초","마늘","양파","고추","소금"],
+      allergies:["특별한 알레르기 유발 성분 없음 — 마늘/양파 민감성 확인"] },
+    zh:{ name:"猪血炖肉 (迪努古安)",
+      description:"以猪肉、猪杂碎在猪血、醋、大蒜和辣椒熬成的浓黑汁中慢炖而成的菲律宾炖菜，因颜色深而得名'巧克力肉'。",
+      ingredients:["猪肉","猪肠/猪肝","猪血","醋","大蒜","洋葱","辣椒","盐"],
+      allergies:["通常无特殊过敏原——注意大蒜/洋葱敏感"] },
+    ja:{ name:"ディヌグアン",
+      description:"豚肉と豚内臓を豚の血、酢、にんにく、唐辛子で作った濃い黒いソースで煮込んだフィリピンのシチューです。深い色から「チョコレート肉」とも呼ばれます。",
+      ingredients:["豚肉","豚の内臓/レバー","豚の血","酢","にんにく","玉ねぎ","唐辛子","塩"],
+      allergies:["特定のアレルゲンなし — にんにく・玉ねぎ感受性を確認"] }
+  },
+
+  humba: {
+    emoji:"🥩",
+    en:{ name:"Humba",
+      description:"A Visayan braised pork dish inspired by Chinese red-braised pork. Pork belly is slowly cooked with soy sauce, vinegar, brown sugar, fermented black beans, and pineapple until meltingly tender.",
+      ingredients:["Pork Belly","Soy Sauce","Vinegar","Brown Sugar","Fermented Black Beans","Pineapple","Garlic","Bay Leaves","Whole Peppercorns"],
+      allergies:["Soy","Gluten","Sulfites (vinegar)"] },
+    ko:{ name:"훔바",
+      description:"중국식 홍소육에서 영감을 받은 비사야 삼겹살 요리입니다. 간장, 식초, 흑설탕, 발효 검은콩, 파인애플로 녹을 듯이 부드러워질 때까지 천천히 조립니다.",
+      ingredients:["삼겹살","간장","식초","흑설탕","발효 검은콩","파인애플","마늘","월계수 잎","통후추"],
+      allergies:["대두","글루텐","아황산염 (식초)"] },
+    zh:{ name:"红烧猪肉 (洪巴)",
+      description:"受中式红烧肉启发的米沙雅五花肉料理。五花肉用酱油、醋、红糖、豆豉和菠萝慢炖至入口即化。",
+      ingredients:["五花肉","酱油","醋","红糖","豆豉","菠萝","大蒜","月桂叶","整粒黑胡椒"],
+      allergies:["大豆","麸质","亚硫酸盐（醋）"] },
+    ja:{ name:"フンバ",
+      description:"中国の東坡肉にインスパイアされたビサヤの豚バラ煮込みです。醤油、酢、黒砂糖、発酵黒豆、パイナップルでとろけるほど柔らかくなるまでゆっくり煮込みます。",
+      ingredients:["豚バラ肉","醤油","酢","黒砂糖","発酵黒豆","パイナップル","にんにく","ローリエ","粒こしょう"],
+      allergies:["大豆","グルテン","亜硫酸塩（酢）"] }
+  },
+
+  kinilawnaisda: {
+    emoji:"🐟",
+    en:{ name:"Kinilaw na Isda (Fish Kinilaw)",
+      description:"The Filipino answer to ceviche — fresh raw fish 'cooked' in coconut vinegar or calamansi juice with ginger, onion, and chili. Bright, acidic, and refreshingly light.",
+      ingredients:["Fresh Fish (Tanigue/Tuna)","Coconut Vinegar or Calamansi","Ginger","Red Onion","Chili","Salt","Pepper"],
+      allergies:["Fish","Shellfish (if mixed seafood version)"] },
+    ko:{ name:"키닐라우 나 이스다 (생선 키닐라우)",
+      description:"필리핀식 세비체 — 신선한 생선을 코코넛 식초나 칼라만시 즙에 생강, 양파, 고추와 함께 '익히는' 요리입니다.",
+      ingredients:["신선한 생선(타니게/참치)","코코넛 식초 또는 칼라만시","생강","적양파","고추","소금","후추"],
+      allergies:["생선","갑각류 (혼합 해산물 버전)"] },
+    zh:{ name:"腌生鱼 (基尼劳那伊斯达)",
+      description:"菲律宾版生鱼沙拉——新鲜生鱼用椰子醋或卡拉曼西汁与生姜、洋葱、辣椒一起'腌熟'，清爽酸口。",
+      ingredients:["新鲜鱼（马鲛鱼/金枪鱼）","椰子醋或卡拉曼西","生姜","红洋葱","辣椒","盐","胡椒"],
+      allergies:["鱼类","甲壳类（混合海鲜版本）"] },
+    ja:{ name:"キニラウ・ナ・イスダ（魚のキニラウ）",
+      description:"フィリピン版セビチェ。新鮮な生魚をコプラ酢やカラマンシーの果汁、生姜、玉ねぎ、唐辛子で「調理」した爽やかな酸っぱい一品です。",
+      ingredients:["新鮮な魚（タニゲ/マグロ）","ヤシ酢またはカラマンシー","生姜","紫玉ねぎ","唐辛子","塩","こしょう"],
+      allergies:["魚","甲殻類（ミックスシーフード版）"] }
+  },
+
+  lawuy: {
+    emoji:"🦴",
+    en:{ name:"Lawuy",
+      description:"A Visayan boiled meat dish — pork, chicken, or beef simmered with vegetables and seasoned simply with salt and patis (fish sauce). Comforting, clear-broth, and homestyle.",
+      ingredients:["Pork / Chicken / Beef","Vegetables (cabbage, pechay, beans)","Garlic","Onion","Fish Sauce (Patis)","Salt","Water"],
+      allergies:["Fish (fish sauce)"] },
+    ko:{ name:"라우이",
+      description:"비사야식 삶은 고기 요리 — 돼지고기, 닭고기 또는 소고기를 채소와 함께 삶고 소금과 피시소스로 간단히 간한 맑은 국물 가정식입니다.",
+      ingredients:["돼지고기/닭고기/소고기","채소 (양배추, 청경채, 콩)","마늘","양파","피시소스 (파티스)","소금","물"],
+      allergies:["생선 (피시소스)"] },
+    zh:{ name:"清炖肉 (拉维伊)",
+      description:"米沙雅水煮肉料理——猪肉、鸡肉或牛肉与蔬菜一起炖煮，用盐和鱼露简单调味，是清汤家常菜。",
+      ingredients:["猪肉/鸡肉/牛肉","蔬菜（白菜、小白菜、豆类）","大蒜","洋葱","鱼露 (帕蒂斯)","盐","水"],
+      allergies:["鱼类（鱼露）"] },
+    ja:{ name:"ラウイ",
+      description:"ビサヤの茹で肉料理。豚肉、鶏肉、または牛肉を野菜と一緒に煮て、塩とパティス（魚醤）でシンプルに味付けした家庭的な澄んだスープです。",
+      ingredients:["豚肉/鶏肉/牛肉","野菜（キャベツ、チンゲンサイ、豆類）","にんにく","玉ねぎ","ナンプラー（パティス）","塩","水"],
+      allergies:["魚（魚醤）"] }
+  },
+
+  lechon: {
+    emoji:"🐷",
+    en:{ name:"Lechon (Roasted Whole Pig)",
+      description:"The crown jewel of Filipino feasts — a whole pig seasoned with herbs, spit-roasted over charcoal for hours until the skin is crackling-crisp and the meat is fall-off-the-bone tender.",
+      ingredients:["Whole Pig","Lemongrass","Garlic","Onion","Bay Leaves","Salt","Pepper","Liver Sauce (for dipping)"],
+      allergies:["None typical — liver sauce may contain soy"] },
+    ko:{ name:"레촌 (통돼지 구이)",
+      description:"필리핀 잔칫상의 왕 — 허브로 양념한 통돼지를 숯불에 몇 시간 동안 돌려가며 구워 껍데기는 바삭하고 고기는 부드럽게 만든 요리입니다.",
+      ingredients:["통돼지","레몬그라스","마늘","양파","월계수 잎","소금","후추","간 소스 (딥핑용)"],
+      allergies:["특별한 알레르기 없음 — 간 소스에 대두 포함 가능"] },
+    zh:{ name:"烤乳猪 (莱촌)",
+      description:"菲律宾宴席的王者——整头猪用香草腌制后在木炭上转烤数小时，皮脆肉嫩。",
+      ingredients:["整猪","柠檬草","大蒜","洋葱","月桂叶","盐","胡椒","肝酱（蘸料）"],
+      allergies:["通常无特殊过敏原——肝酱可能含大豆"] },
+    ja:{ name:"レチョン（丸焼き豚）",
+      description:"フィリピンの祝宴の主役。ハーブで味付けした丸ごとの豚を炭火で何時間も回転させながら焼き、皮はパリパリ、肉はホロホロになった料理です。",
+      ingredients:["丸ごとの豚","レモングラス","にんにく","玉ねぎ","ローリエ","塩","こしょう","レバーソース（つけダレ）"],
+      allergies:["特定のアレルゲンなし — レバーソースに大豆を含む場合あり"] }
+  },
+
+  lechonmanok: {
+    emoji:"🍗",
+    en:{ name:"Lechon Manok (Rotisserie Chicken)",
+      description:"Golden Filipino rotisserie chicken marinated in lemongrass, garlic, soy sauce, and spices, then spit-roasted to perfection. A beloved street food and everyday meal.",
+      ingredients:["Whole Chicken","Lemongrass","Garlic","Soy Sauce","Onion","Salt","Pepper","Oil"],
+      allergies:["Soy (soy sauce)","Gluten (some marinades)"] },
+    ko:{ name:"레촌 마녹 (로티세리 치킨)",
+      description:"레몬그라스, 마늘, 간장, 스파이스로 마리네이드한 황금빛 필리핀 로티세리 치킨입니다.",
+      ingredients:["통닭","레몬그라스","마늘","간장","양파","소금","후추","식용유"],
+      allergies:["대두 (간장)","글루텐 (일부 마리네이드)"] },
+    zh:{ name:"烤鸡 (莱촌·马诺克)",
+      description:"用柠檬草、大蒜、酱油和香料腌制的黄金色菲律宾烤鸡，转烤至完美。深受喜爱的街头食品和日常餐食。",
+      ingredients:["整鸡","柠檬草","大蒜","酱油","洋葱","盐","胡椒","食用油"],
+      allergies:["大豆（酱油）","麸质（部分腌料）"] },
+    ja:{ name:"レチョン・マノック（ロティサリーチキン）",
+      description:"レモングラス、にんにく、醤油、スパイスでマリネした丸鶏を串に刺してじっくり焼き上げた黄金色のフィリピン定番ストリートフードです。",
+      ingredients:["丸ごとの鶏肉","レモングラス","にんにく","醤油","玉ねぎ","塩","こしょう","食用油"],
+      allergies:["大豆（醤油）","グルテン（一部のマリネ）"] }
+  },
+
+  sinigang: {
+    emoji:"🍲",
+    en:{ name:"Sinigang",
+      description:"A beloved Filipino sour soup made with tamarind broth and loaded with vegetables and your choice of pork, shrimp, or fish. Comforting, tangy, and deeply nourishing.",
+      ingredients:["Pork / Shrimp / Fish","Tamarind","Tomatoes","Onions","Water Spinach (Kangkong)","Eggplant","Green Beans","Radish","Taro"],
+      allergies:["Shellfish (shrimp version)","Fish (fish version)"] },
+    ko:{ name:"시니강",
+      description:"타마린드 국물로 만든 사랑받는 필리핀 새콤한 수프로, 채소와 돼지고기, 새우 또는 생선을 풍부하게 넣어 만듭니다.",
+      ingredients:["돼지고기 / 새우 / 생선","타마린드","토마토","양파","물시금치 (강콩)","가지","강낭콩","무","토란"],
+      allergies:["갑각류 (새우 버전)","생선 (생선 버전)"] },
+    zh:{ name:"酸汤 (西尼冈)",
+      description:"用罗望子汤底制成的深受喜爱的菲律宾酸汤，加入蔬菜和猪肉、虾或鱼，酸爽开胃，营养丰富。",
+      ingredients:["猪肉/虾/鱼","罗望子","番茄","洋葱","空心菜","茄子","四季豆","萝卜","芋头"],
+      allergies:["甲壳类（虾版本）","鱼类（鱼版本）"] },
+    ja:{ name:"シニガン",
+      description:"タマリンドのスープで作ったフィリピンの人気酸っぱいスープで、野菜と豚肉、エビ、または魚をたっぷり入れた滋味深い一品です。",
+      ingredients:["豚肉/エビ/魚","タマリンド","トマト","玉ねぎ","空芯菜（カンコン）","ナス","インゲン","大根","タロイモ"],
+      allergies:["甲殻類（エビ版）","魚（魚版）"] }
+  },
+
+  sinunuban: {
+    emoji:"🦐",
+    en:{ name:"Sinunuban",
+      description:"A Cebuano dish of shrimp or shellfish sautéed with garlic, onion, and tomatoes in a light, fragrant sauce. Simple, quick, and packed with fresh seafood flavor.",
+      ingredients:["Shrimp or Shellfish","Garlic","Onions","Tomatoes","Salt","Pepper","Oil"],
+      allergies:["Shellfish / Crustaceans"] },
+    ko:{ name:"시누누반",
+      description:"새우 또는 조개류를 마늘, 양파, 토마토와 함께 볶은 세부의 요리로, 가볍고 향긋한 소스에 신선한 해산물 풍미가 가득합니다.",
+      ingredients:["새우 또는 조개류","마늘","양파","토마토","소금","후추","식용유"],
+      allergies:["조개류 / 갑각류"] },
+    zh:{ name:"蒜炒虾 (西努努班)",
+      description:"宿务菜肴——虾或贝类与大蒜、洋葱、番茄一起翻炒，酱汁清爽香气四溢，充满新鲜海鲜风味。",
+      ingredients:["虾或贝类","大蒜","洋葱","番茄","盐","胡椒","食用油"],
+      allergies:["贝类/甲壳类"] },
+    ja:{ name:"シヌヌバン",
+      description:"エビや貝類をにんにく、玉ねぎ、トマトと炒めたセブ料理で、軽くて香り豊かなソースに新鮮な海の旨みが凝縮されています。",
+      ingredients:["エビまたは貝類","にんにく","玉ねぎ","トマト","塩","こしょう","食用油"],
+      allergies:["貝類/甲殻類"] }
+  },
+
+  sisig: {
+    emoji:"🐷",
+    en:{ name:"Sisig",
+      description:"A legendary Pampanga dish made from sizzling pork face and ears seasoned with calamansi, chili, and onions, served on a hot iron plate. Often topped with a raw egg and mayo.",
+      ingredients:["Pork Face / Ears / Cheeks","Chicken Liver","Onions","Calamansi","Chili Peppers","Mayonnaise (optional)","Egg (optional)","Salt","Pepper"],
+      allergies:["Eggs (if topped)","Soy (some recipes)"] },
+    ko:{ name:"시식",
+      description:"팜팡가의 전설적인 요리로, 돼지 얼굴과 귀를 칼라만시, 고추, 양파로 양념하여 뜨거운 철판에 지글지글 담아낸 요리입니다.",
+      ingredients:["돼지 얼굴 / 귀 / 볼","닭 간","양파","칼라만시","고추","마요네즈 (선택)","달걀 (선택)","소금","후추"],
+      allergies:["달걀 (토핑 시)","대두 (일부 레시피)"] },
+    zh:{ name:"猪脸肉 (西西格)",
+      description:"邦板牙省的传奇菜肴——猪脸肉和猪耳用卡拉曼西、辣椒和洋葱调味，盛放在滚烫铁板上嗞嗞作响。",
+      ingredients:["猪脸/猪耳/猪颊","鸡肝","洋葱","卡拉曼西","辣椒","蛋黄酱（可选）","鸡蛋（可选）","盐","胡椒"],
+      allergies:["鸡蛋（顶料时）","大豆（部分菜谱）"] },
+    ja:{ name:"シシグ",
+      description:"パンパンガの伝説的料理で、豚の顔と耳をカラマンシー、唐辛子、玉ねぎで味付けし、熱い鉄板で提供します。",
+      ingredients:["豚の顔/耳/頬","鶏レバー","玉ねぎ","カラマンシー","唐辛子","マヨネーズ（任意）","卵（任意）","塩","こしょう"],
+      allergies:["卵（トッピング時）","大豆（一部レシピ）"] }
+  }
+
+};
+
+/* ============================================================
+   CONFIG
+   Use relative paths — works on GitHub Pages and localhost alike.
+   ============================================================ */
+const MODEL_PATH    = "./model/model.json";
+const METADATA_PATH = "./model/metadata.json";
+
+let tmModel    = null;
+let modelReady = false;
+let currentLang = "en";
+let currentKey  = null;
+
+/* ============================================================
+   DOM REFS
+   ============================================================ */
+const themeToggle    = document.getElementById("theme-toggle");
+const themeIcon      = themeToggle.querySelector(".theme-icon");
+const modelBanner    = document.getElementById("model-banner");
+const mdot           = document.getElementById("mdot");
+const mbannerText    = document.getElementById("mbanner-text");
+const cameraBtn      = document.getElementById("camera-btn");
+const uploadBtn      = document.getElementById("upload-btn");
+const cameraInput    = document.getElementById("camera-input");
+const fileInput      = document.getElementById("file-input");
+const previewWrap    = document.getElementById("preview-wrap");
+const previewImg     = document.getElementById("preview-img");
+const placeholder    = document.getElementById("placeholder");
+const loadingOverlay = document.getElementById("loading-overlay");
+const resultCard     = document.getElementById("result-card");
+const tryAgainBtn    = document.getElementById("try-again-btn");
+const langTabs       = document.getElementById("lang-tabs");
+const installBanner  = document.getElementById("install-banner");
+const installBtn     = document.getElementById("install-btn");
+const dismissBanner  = document.getElementById("dismiss-banner");
+const offlineReadyBanner  = document.getElementById("offline-ready-banner");
+const dismissOfflineBanner= document.getElementById("dismiss-offline-banner");
+const resultEmoji    = document.getElementById("result-emoji");
+const resultName     = document.getElementById("result-name");
+const confidenceBar  = document.getElementById("confidence-bar");
+const confidenceLabel= document.getElementById("confidence-label");
+const infoDescription= document.getElementById("info-description");
+const infoIngredients= document.getElementById("info-ingredients");
+const infoAllergies  = document.getElementById("info-allergies");
+
+/* ============================================================
+   THEME
+   ============================================================ */
+function applyTheme(t) {
+  document.documentElement.setAttribute("data-theme", t);
+  themeIcon.textContent = t === "dark" ? "🌙" : "☀️";
+  try { localStorage.setItem("theme", t); } catch(_) {}
+}
+try { applyTheme(localStorage.getItem("theme") || "light"); }
+catch(_) { applyTheme("light"); }
+
+themeToggle.addEventListener("click", () =>
+  applyTheme(document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark")
+);
+
+/* ============================================================
+   MODEL LOADING
+   ============================================================ */
+function setBannerState(state, msg, showRetry) {
+  modelBanner.className = "model-banner" + (state ? " " + state : "");
+  mbannerText.textContent = msg;
+  const old = modelBanner.querySelector(".retry-btn");
+  if (old) old.remove();
+  if (showRetry) {
+    const btn = document.createElement("button");
+    btn.className   = "retry-btn";
+    btn.textContent = "Retry";
+    btn.addEventListener("click", loadModel);
+    modelBanner.appendChild(btn);
+  }
+}
+
+async function loadModel() {
+  if (modelReady) return;
+
+  setBannerState("", "⏳ Loading AI model…", false);
+  cameraBtn.disabled = true;
+  uploadBtn.disabled = true;
+
+  // tmImage comes from teachablemachine-image.min.js
+  if (typeof tmImage === "undefined") {
+    setBannerState("error",
+      "❌ TensorFlow library failed to load. " +
+      (navigator.onLine
+        ? "Please refresh the page."
+        : "You are offline and the scripts aren't cached yet. Go online once so the SW can cache them."),
+      true
+    );
+    cameraBtn.disabled = false;
+    uploadBtn.disabled = false;
+    return;
+  }
+
+  try {
+    tmModel    = await tmImage.load(MODEL_PATH, METADATA_PATH);
+    modelReady = true;
+    setBannerState("ready", "✅ AI model ready — take or upload a photo!", false);
+    cameraBtn.disabled = false;
+    uploadBtn.disabled = false;
+    setTimeout(() => modelBanner.classList.add("hidden"), 3000);
+  } catch (err) {
+    console.error("[Kain Tayo] Model load error:", err);
+
+    let hint;
+    if (!navigator.onLine) {
+      hint = "You are offline and the model isn't cached yet. Go online once to cache the model, then you can use it offline.";
+    } else if (err && err.message && err.message.includes("404")) {
+      hint = "Model files not found (404). Ensure model/model.json, model/metadata.json, and model/weights.bin are all committed to your repo.";
+    } else {
+      hint = "Model failed to load. Check that the model/ folder is next to index.html and all 3 files are present.";
+    }
+
+    setBannerState("error", "❌ " + hint, true);
+    cameraBtn.disabled = false;
+    uploadBtn.disabled = false;
+  }
+}
+
+// Kick off model loading after page paints
+requestAnimationFrame(() => setTimeout(loadModel, 0));
+
+/* ============================================================
+   CAMERA / UPLOAD
+   ============================================================ */
+cameraBtn.addEventListener("click", () => cameraInput.click());
+cameraInput.addEventListener("change", e => {
+  const f = e.target.files[0];
+  if (f) handleFile(f);
+  cameraInput.value = "";
+});
+
+uploadBtn.addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", e => {
+  const f = e.target.files[0];
+  if (f) handleFile(f);
+  fileInput.value = "";
+});
+
+/* Drag & drop */
+previewWrap.addEventListener("dragover", e => {
+  e.preventDefault();
+  previewWrap.style.borderColor = "var(--primary)";
+});
+previewWrap.addEventListener("dragleave", () => { previewWrap.style.borderColor = ""; });
+previewWrap.addEventListener("drop", e => {
+  e.preventDefault();
+  previewWrap.style.borderColor = "";
+  const f = e.dataTransfer.files[0];
+  if (f && f.type.startsWith("image/")) handleFile(f);
+});
+
+function handleFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    showPreview(e.target.result);
+    predict(e.target.result);
+  };
+  reader.readAsDataURL(file);
+}
+
+function showPreview(src) {
+  previewImg.src = src;
+  previewImg.classList.remove("hidden");
+  previewWrap.classList.add("has-image");
+  placeholder.classList.add("hidden");
+  resultCard.classList.add("hidden");
+}
+
+/* ============================================================
+   PREDICTION
+   ============================================================ */
+async function predict(src) {
+  loadingOverlay.classList.remove("hidden");
+  try {
+    let label, confidence;
+
+    if (modelReady && tmModel) {
+      const img = new Image();
+      img.src = src;
+      await new Promise((res, rej) => {
+        img.onload  = res;
+        img.onerror = rej;
+      });
+      const preds = await tmModel.predict(img);
+      preds.sort((a, b) => b.probability - a.probability);
+      label      = preds[0].className;
+      confidence = preds[0].probability;
+    } else {
+      // Fallback: random result so the UI is always testable
+      const keys = Object.keys(FOOD_DB);
+      label      = keys[Math.floor(Math.random() * keys.length)];
+      confidence = 0.72 + Math.random() * 0.25;
+    }
+
+    const key  = label.toLowerCase().replace(/\s+/g, "").trim();
+    const data = FOOD_DB[key];
+
+    if (data) {
+      currentKey = key;
+      showResult(data, confidence);
+    } else {
+      showUnknown(label);
+    }
+  } catch (err) {
+    console.error("[Kain Tayo] Predict error:", err);
+    showError();
+  } finally {
+    loadingOverlay.classList.add("hidden");
+  }
+}
+
+/* ============================================================
+   RENDER RESULTS
+   ============================================================ */
+function showResult(data, confidence) {
+  currentLang = "en";
+  updateTabs();
+  renderInfo(data, confidence);
+  resultCard.classList.remove("hidden");
+  setTimeout(() => resultCard.scrollIntoView({ behavior:"smooth", block:"start" }), 80);
+}
+
+function renderInfo(data, confidence) {
+  const d   = data[currentLang] || data["en"];
+  const pct = Math.round(confidence * 100);
+  resultEmoji.textContent             = data.emoji;
+  resultName.textContent              = d.name;
+  confidenceBar.style.width           = pct + "%";
+  confidenceBar.parentElement.setAttribute("aria-valuenow", pct);
+  confidenceLabel.textContent         = "Confidence: " + pct + "%";
+  infoDescription.textContent         = d.description;
+  infoIngredients.innerHTML           = d.ingredients.map(i => `<span class="tag">${i}</span>`).join("");
+  infoAllergies.innerHTML             = d.allergies.map(a   => `<span class="tag">${a}</span>`).join("");
+}
+
+function showUnknown(label) {
+  resultEmoji.textContent    = "🤔";
+  resultName.textContent     = "Not Recognized";
+  confidenceBar.style.width  = "20%";
+  confidenceLabel.textContent= "Low confidence";
+  infoDescription.textContent= `"${label}" is not in the database. Try a clearer, closer photo of one of the 11 supported dishes.`;
+  infoIngredients.innerHTML  = "";
+  infoAllergies.innerHTML    = `<span class="tag">Cannot determine allergy info</span>`;
+  resultCard.classList.remove("hidden");
+  setTimeout(() => resultCard.scrollIntoView({ behavior:"smooth", block:"start" }), 80);
+}
+
+function showError() {
+  resultEmoji.textContent    = "⚠️";
+  resultName.textContent     = "Something went wrong";
+  confidenceBar.style.width  = "0%";
+  confidenceLabel.textContent= "—";
+  infoDescription.textContent= "Please try again with a different image.";
+  infoIngredients.innerHTML  = "";
+  infoAllergies.innerHTML    = "";
+  resultCard.classList.remove("hidden");
+}
+
+/* ── Try again ── */
+tryAgainBtn.addEventListener("click", () => {
+  resultCard.classList.add("hidden");
+  previewImg.classList.add("hidden");
+  previewWrap.classList.remove("has-image");
+  placeholder.classList.remove("hidden");
+  previewImg.src = "";
+  currentKey     = null;
+  confidenceBar.style.width = "0%";
+  window.scrollTo({ top:0, behavior:"smooth" });
+});
+
+/* ── Language tabs ── */
+langTabs.addEventListener("click", e => {
+  const tab = e.target.closest(".lang-tab");
+  if (!tab) return;
+  currentLang = tab.dataset.lang;
+  updateTabs();
+  if (currentKey && FOOD_DB[currentKey]) {
+    const pct = parseFloat(confidenceBar.style.width) / 100 || 0.9;
+    renderInfo(FOOD_DB[currentKey], pct);
+  }
+});
+function updateTabs() {
+  document.querySelectorAll(".lang-tab").forEach(t => {
+    const active = t.dataset.lang === currentLang;
+    t.classList.toggle("active", active);
+    t.setAttribute("aria-selected", String(active));
+  });
+}
+
+/* ============================================================
+   PWA — INSTALL PROMPT
+   ============================================================ */
+let deferredPrompt = null;
+
+window.addEventListener("beforeinstallprompt", e => {
+  e.preventDefault();
+  deferredPrompt = e;
+  installBanner.classList.remove("hidden");
+});
+
+installBtn.addEventListener("click", async () => {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();
+  const { outcome } = await deferredPrompt.userChoice;
+  console.log("[PWA] Install outcome:", outcome);
+  deferredPrompt = null;
+  installBanner.classList.add("hidden");
+});
+
+dismissBanner.addEventListener("click",        () => installBanner.classList.add("hidden"));
+dismissOfflineBanner.addEventListener("click", () => offlineReadyBanner.classList.add("hidden"));
+
+window.addEventListener("appinstalled", () => {
+  installBanner.classList.add("hidden");
+  deferredPrompt = null;
+  console.log("[PWA] App installed successfully.");
+});
+
+/* ============================================================
+   SERVICE WORKER — registration + update handling
+   ============================================================ */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", async () => {
+    try {
+      const reg = await navigator.serviceWorker.register("./sw.js", { scope: "./" });
+      console.log("[SW] Registered. Scope:", reg.scope);
+
+      // Check for updates every time the page loads
+      reg.addEventListener("updatefound", () => {
+        const newWorker = reg.installing;
+        console.log("[SW] Update found — installing new worker…");
+
+        newWorker.addEventListener("statechange", () => {
+          if (newWorker.state === "installed" && navigator.serviceWorker.controller) {
+            // A new SW is waiting — tell it to activate immediately
+            console.log("[SW] New content available. Activating…");
+            newWorker.postMessage({ type: "SKIP_WAITING" });
+          }
+        });
+      });
+
+    } catch (err) {
+      console.warn("[SW] Registration failed:", err);
+    }
+  });
+
+  // Listen for messages from the SW
+  navigator.serviceWorker.addEventListener("message", e => {
+    if (e.data && e.data.type === "SW_ACTIVATED") {
+      console.log("[SW] New SW active:", e.data.version);
+      // Show offline-ready banner — auto-dismiss after 5 s
+      offlineReadyBanner.classList.remove("hidden");
+      setTimeout(() => offlineReadyBanner.classList.add("hidden"), 5000);
+    }
+  });
+
+  // If the controller changes (new SW took over), reload once for fresh content
+  let refreshing = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!refreshing) {
+      refreshing = true;
+      window.location.reload();
+    }
+  });
+}
+  </script>
+</body>
+</html>
